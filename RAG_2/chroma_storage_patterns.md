@@ -417,3 +417,68 @@ results = db.similarity_search_by_vector(hyde_embedding)
 **Bottom line:**
 HyDE can boost retrieval performance by bridging the gap between user intent and document language, especially in semantic search and RAG pipelines.
 
+
+---
+
+## 10. Retrieval and Reranking Strategies
+
+### Bi-encoder Retrieval
+
+The bi-encoder encodes the query and each document independently into vectors using a dual-encoder model (e.g., SentenceTransformer). Retrieval is performed by computing the similarity (e.g., cosine similarity) between the query embedding and all document embeddings, and selecting the top-k most similar documents.
+
+**Pros:** Fast, scalable to large collections, can precompute document embeddings.
+
+**Cons:** Only captures surface-level similarity; may not distinguish subtle factual differences.
+
+**Example:**
+```python
+query_emb = bi_encoder.encode(query, convert_to_tensor=True)
+doc_embs = bi_encoder.encode(documents, convert_to_tensor=True)
+cos_scores = util.cos_sim(query_emb, doc_embs)[0]
+top_results = np.argsort(-cos_scores.cpu().numpy())[:100]
+```
+
+---
+
+### Cross-encoder Reranking
+
+The cross-encoder takes the query and each candidate document as a pair and jointly encodes them, producing a relevance score for each pair. This allows the model to reason about the factual relationship between the query and the document, often ranking the correct answer highest even among many similar candidates.
+
+**Pros:** High accuracy, can distinguish subtle differences and factual correctness.
+
+**Cons:** Slower and less scalable (must run for each query-document pair at inference time).
+
+**Example:**
+```python
+pairs = [(query, doc) for doc in candidate_docs]
+cross_scores = cross_encoder.predict(pairs)
+reranked = sorted(zip(candidate_docs, cross_scores), key=lambda x: x[1], reverse=True)
+```
+
+---
+
+### LLM-based Reranking (Listwise)
+
+An LLM (e.g., GPT-4) is prompted with the query and a list of candidate documents, and asked to return the documents in order of relevance. The LLM uses its world knowledge and reasoning to identify the best answer, even among many similar candidates.
+
+**Pros:** Can leverage deep factual and contextual knowledge; robust to paraphrasing and ambiguity.
+
+**Cons:** Slowest and most expensive; not suitable for large candidate pools.
+
+**Example:**
+```python
+prompt = f"You are a relevance ranking assistant. Query: {query}\nDocuments: ..."
+response = client.chat.completions.create(...)
+# Parse and reorder candidates based on LLM output
+```
+
+---
+
+### Summary Table: Retrieval and Reranking
+
+| Method                | How it works                | Speed    | Accuracy | Best for                        |
+|-----------------------|-----------------------------|----------|----------|---------------------------------|
+| Bi-encoder            | Vector similarity           | Fast     | Medium   | Large-scale retrieval           |
+| Cross-encoder         | Joint query-doc scoring     | Medium   | High     | Top-k reranking, factual match  |
+| LLM-based Reranking   | LLM ranks all candidates    | Slow     | Highest  | Small pools, complex reasoning  |
+
